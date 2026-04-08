@@ -75,11 +75,12 @@ def get_env() -> WebResearchEnvironment:
 
 
 @app.post("/reset", response_model=ResetResponse)
-async def reset(request: ResetRequest):
+async def reset(request: Optional[ResetRequest] = None):
     """Reset the environment for a new episode."""
     try:
         env = get_env()
-        result = env.reset(task=request.task)
+        task_name = request.task if request else "company_info_lookup"
+        result = env.reset(task=task_name)
         return ResetResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
