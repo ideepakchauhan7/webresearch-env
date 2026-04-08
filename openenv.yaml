@@ -1,0 +1,72 @@
+spec_version: "1"
+name: webresearch_env
+description: "Web Research OpenEnv - Agent tasks for web scraping, searching, and information extraction using FireCrawl"
+type: space
+runtime: fastapi
+app: server:app
+port: 8000
+
+tasks:
+  - name: company_info_lookup
+    description: "Find the founding year of Anthropic (easy difficulty)"
+    difficulty: easy
+    expected_reward: 1.0
+    max_steps: 20
+
+  - name: product_price_comparison
+    description: "Compare prices of three headphone products from tech-retailer.com (medium difficulty)"
+    difficulty: medium
+    expected_reward: 1.0
+    max_steps: 20
+
+  - name: research_synthesis
+    description: "Synthesize renewable energy growth research from multiple sources (hard difficulty)"
+    difficulty: hard
+    expected_reward: 1.0
+    max_steps: 20
+
+observation:
+  type: object
+  properties:
+    content:
+      type: string
+      description: "Scraped or extracted content"
+    status:
+      type: string
+      description: "Status of the observation"
+    task_description:
+      type: string
+      description: "Description of current task"
+    current_url:
+      type: string
+      description: "Current URL being viewed"
+    scraped_urls:
+      type: array
+      items:
+        type: string
+      description: "List of URLs scraped so far"
+    step_count:
+      type: integer
+      description: "Current step number"
+    max_steps:
+      type: integer
+      description: "Maximum steps allowed"
+
+action:
+  type: object
+  properties:
+    action_type:
+      type: string
+      enum: [scrape, search, extract, submit]
+      description: "Type of action to execute"
+    action_arg:
+      type: string
+      description: "Argument for the action (URL, query, etc.)"
+  required:
+    - action_type
+
+reward:
+  type: number
+  minimum: 0.0
+  maximum: 1.0
+  description: "Reward value between 0.0 and 1.0"
