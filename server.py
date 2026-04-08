@@ -15,7 +15,7 @@ from tasks import get_all_tasks, get_task
 
 # Pydantic models for API
 class ResetRequest(BaseModel):
-    task: str = Field(..., description="Task name to run")
+    task: str = Field(default="company_info_lookup", description="Task name to run")
 
 
 class ActionRequest(BaseModel):
