@@ -11,6 +11,8 @@ from environment import create_environment
 from models import (
     CloseResponse,
     EnvironmentState,
+    GradeRequest,
+    GradeResponse,
     HealthResponse,
     ResetRequest,
     ResetResponse,
@@ -19,7 +21,7 @@ from models import (
     TaskSummary,
     WebAction,
 )
-from tasks import get_all_tasks
+from tasks import get_all_tasks, get_task
 
 PORT = int(os.getenv("PORT", "7860"))
 ENV_NAME = "webresearch_env"
@@ -76,6 +78,24 @@ async def list_tasks() -> TaskListResponse:
     """List all supported tasks."""
     tasks = [TaskSummary(**task) for task in get_all_tasks()]
     return TaskListResponse(tasks=tasks)
+
+
+@app.post("/grade", response_model=GradeResponse)
+async def grade(request: GradeRequest) -> GradeResponse:
+    """Run a task grader directly for validator compatibility."""
+    try:
+        task = get_task(request.task)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    score, reason = task.grade(request.answer)
+    return GradeResponse(task=task.name, grader=task.grader_name, score=score, reason=reason)
+
+
+@app.post("/grader", response_model=GradeResponse)
+async def grader(request: GradeRequest) -> GradeResponse:
+    """Backward-compatible alias for direct grader invocation."""
+    return await grade(request)
 
 
 def main() -> None:

@@ -99,16 +99,27 @@ class Task:
         difficulty: str,
         target_answer: str,
         grader: Callable[[str, str], Tuple[float, str]],
+        grader_name: str | None = None,
         hints: list = None,
-        relevant_urls: list = None
+        relevant_urls: list = None,
+        reward_range: tuple[float, float] = (0.01, 0.99),
+        expected_score: float = 0.99,
+        max_steps: int = 20,
     ):
         self.name = name
+        self.id = name
+        self.task_id = name
         self.description = description
         self.difficulty = difficulty
         self.target_answer = target_answer
         self.grader = grader
+        self.grader_name = grader_name or getattr(grader, "__name__", "unknown_grader")
+        self.graders = [self.grader_name]
         self.hints = hints or []
         self.relevant_urls = relevant_urls or []
+        self.reward_range = [round(reward_range[0], 2), round(reward_range[1], 2)]
+        self.expected_score = round(expected_score, 2)
+        self.max_steps = max_steps
 
     def grade(self, submitted_answer: str) -> Tuple[float, str]:
         """Grade a submitted answer."""
@@ -123,7 +134,7 @@ class Task:
             "current_url": None,
             "scraped_urls": [],
             "step_count": 0,
-            "max_steps": 20
+            "max_steps": self.max_steps,
         }
 
 
@@ -147,11 +158,13 @@ Target: Provide the 4-digit year (e.g., "2021").
         difficulty="easy",
         target_answer="2021",
         grader=grade_company_founding_year,
+        grader_name="grade_company_founding_year",
         hints=[
             "Check the About page on anthropic.com",
             "Look for mentions of when the company was founded"
         ],
-        relevant_urls=["https://anthropic.com/about", "https://anthropic.com"]
+        relevant_urls=["https://anthropic.com/about", "https://anthropic.com"],
+        expected_score=0.99,
     ),
 
     "product_price_comparison": Task(
@@ -169,13 +182,18 @@ Target answer format: List the prices for all three products.
 Example: "Product A: $99, Product B: $129, Product C: $89. Cheapest: Product C, Most expensive: Product B"
 """,
         difficulty="medium",
-        target_answer="Product A: $99, Product B: $129, Product C: $89",
+        target_answer=(
+            "Product A: $99.99, Product B: $129.99, Product C: $89.99. "
+            "Cheapest: Product C. Most expensive: Product B."
+        ),
         grader=grade_product_price_comparison,
+        grader_name="grade_product_price_comparison",
         hints=[
             "Navigate to tech-retailer.com/products",
             "Look for Wireless Headphones (Product A), Premium Headphones (Product B), Budget Headphones (Product C)"
         ],
-        relevant_urls=["https://tech-retailer.com/products"]
+        relevant_urls=["https://tech-retailer.com/products"],
+        expected_score=0.99,
     ),
 
     "research_synthesis": Task(
@@ -196,13 +214,13 @@ Task:
 Note: You must use information from multiple sources to get full credit.
 """,
         difficulty="hard",
-        target_answer="""
-Renewable energy experienced significant growth in 2023.
-Solar capacity grew by 30% with over 200 GW added globally.
-Wind energy saw 15% capacity growth, particularly in offshore markets.
-Investment reached $500 billion, showing strong market confidence.
-""",
+        target_answer=(
+            "Renewable energy saw strong growth in 2023, with solar capacity up 30% and more than 200 GW added globally. "
+            "Wind capacity also grew 15%, especially in offshore markets, while total investment reached $500 billion. "
+            "Policy support helped market growth in emerging economies, but grid integration and supply chain constraints remained key challenges."
+        ),
         grader=grade_research_synthesis,
+        grader_name="grade_research_synthesis",
         hints=[
             "Look for market analysis reports",
             "Check renewable energy trend reports",
@@ -212,7 +230,8 @@ Investment reached $500 billion, showing strong market confidence.
             "https://market-analysis.com/energy-2023",
             "https://renewable-insights.com/solar-trends",
             "https://wind-energy.org/offshore-report"
-        ]
+        ],
+        expected_score=0.99,
     )
 }
 
@@ -228,9 +247,16 @@ def get_all_tasks() -> list:
     """Get all task definitions."""
     return [
         {
+            "id": task.id,
+            "task_id": task.task_id,
             "name": task.name,
             "description": task.description,
-            "difficulty": task.difficulty
+            "difficulty": task.difficulty,
+            "grader": task.grader_name,
+            "graders": task.graders,
+            "reward_range": task.reward_range,
+            "expected_score": task.expected_score,
+            "max_steps": task.max_steps,
         }
         for task in TASKS.values()
     ]

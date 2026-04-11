@@ -1,4 +1,5 @@
 spec_version: "1"
+version: "1.0.0"
 name: webresearch_env
 description: "Web Research OpenEnv - deterministic web research tasks with search, scraping, extraction, and grading"
 type: space
@@ -8,20 +9,32 @@ port: 7860
 
 tasks:
   - name: company_info_lookup
+    id: company_info_lookup
     description: "Find the founding year of Anthropic (easy difficulty)"
     difficulty: easy
+    grader: grade_company_founding_year
+    reward_range: [0.01, 0.99]
+    expected_score: 0.99
     expected_reward: 0.99
     max_steps: 20
 
   - name: product_price_comparison
+    id: product_price_comparison
     description: "Compare prices of three headphone products from tech-retailer.com (medium difficulty)"
     difficulty: medium
+    grader: grade_product_price_comparison
+    reward_range: [0.01, 0.99]
+    expected_score: 0.99
     expected_reward: 0.99
     max_steps: 20
 
   - name: research_synthesis
+    id: research_synthesis
     description: "Synthesize renewable energy growth research from multiple sources (hard difficulty)"
     difficulty: hard
+    grader: grade_research_synthesis
+    reward_range: [0.01, 0.99]
+    expected_score: 0.99
     expected_reward: 0.99
     max_steps: 20
 
@@ -67,6 +80,6 @@ action:
 
 reward:
   type: number
-  minimum: 0.0
-  maximum: 1.0
-  description: "Reward value between 0.0 and 1.0"
+  minimum: 0.01
+  maximum: 0.99
+  description: "Reward value strictly between 0 and 1"

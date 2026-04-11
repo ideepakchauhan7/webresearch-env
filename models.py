@@ -58,7 +58,7 @@ class WebObservation(BaseModel):
 
 class WebReward(BaseModel):
     """Reward model for web research tasks."""
-    value: float = Field(..., description="Reward value between 0.0 and 1.0")
+    value: float = Field(..., gt=0.0, lt=1.0, description="Reward value strictly between 0 and 1")
     reason: str = Field(default="", description="Explanation for the reward")
 
     class Config:
@@ -97,7 +97,7 @@ class TaskResult(BaseModel):
     """Result of a task execution."""
     task_name: str = Field(..., description="Name of the task")
     success: bool = Field(..., description="Whether task was completed successfully")
-    score: float = Field(..., description="Score between 0.0 and 1.0")
+    score: float = Field(..., gt=0.0, lt=1.0, description="Score strictly between 0 and 1")
     steps_taken: int = Field(..., description="Number of steps taken")
     answer: str = Field(default="", description="Agent's submitted answer")
     target_answer: str = Field(default="", description="Correct answer")
@@ -118,7 +118,7 @@ class EnvironmentState(BaseModel):
 class StepResponse(BaseModel):
     """Response from a step action."""
     observation: WebObservation
-    reward: float
+    reward: float = Field(..., gt=0.0, lt=1.0)
     done: bool
     info: Dict[str, Any]
 
@@ -142,12 +142,35 @@ class TaskSummary(BaseModel):
     name: str
     description: str
     difficulty: str
+    id: Optional[str] = None
+    task_id: Optional[str] = None
+    grader: Optional[str] = None
+    graders: List[str] = Field(default_factory=list)
+    reward_range: List[float] = Field(default_factory=list)
+    expected_score: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
+    max_steps: Optional[int] = None
 
 
 class TaskListResponse(BaseModel):
     """Response model for listing tasks."""
 
     tasks: List[TaskSummary]
+
+
+class GradeRequest(BaseModel):
+    """Request model for directly invoking a task grader."""
+
+    task: str = Field(..., description="Task identifier")
+    answer: str = Field(default="", description="Submitted answer to grade")
+
+
+class GradeResponse(BaseModel):
+    """Response model for a direct grader invocation."""
+
+    task: str
+    grader: str
+    score: float = Field(..., gt=0.0, lt=1.0, description="Score strictly between 0 and 1")
+    reason: str
 
 
 class HealthResponse(BaseModel):

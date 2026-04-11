@@ -343,7 +343,7 @@ def check_graders() -> bool:
 
         all_pass = True
         for index, (score, reason) in enumerate(samples, start=1):
-            if not (0.0 <= score <= 1.0):
+            if not (0.0 < score < 1.0):
                 print(f"✗ Grader {index} produced out-of-range score {score}")
                 all_pass = False
             else:
@@ -377,7 +377,7 @@ def check_environment() -> bool:
                 print(f"✗ {name} step returns incorrect structure")
                 return False
             reward = float(result["reward"])
-            if not (0.0 <= reward <= 1.0):
+            if not (0.0 < reward < 1.0):
                 print(f"✗ {name} step reward out of range: {reward}")
                 return False
             print(f"✓ {name} step reward={reward:.2f}")
@@ -387,6 +387,14 @@ def check_environment() -> bool:
             print("✗ state() returns incorrect structure")
             return False
         print("✓ state() returns correct structure")
+
+        from server.app import app
+        routes = {route.path for route in app.routes}
+        for path in ["/grade", "/grader"]:
+            if path not in routes:
+                print(f"✗ Missing validator compatibility endpoint: {path}")
+                return False
+        print("✓ grade/grader endpoints are available")
 
         return True
     except Exception as exc:
