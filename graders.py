@@ -15,6 +15,11 @@ def clamp_submission_score(score: float) -> float:
     return round(min(max(score, MIN_SUBMISSION_SCORE), MAX_SUBMISSION_SCORE), 2)
 
 
+def strict_score(score: float) -> float:
+    """Normalize helper grader outputs into the strict open interval (0, 1)."""
+    return clamp_submission_score(score)
+
+
 def normalize_answer(text: str) -> str:
     """Normalize answer text for comparison."""
     if not text:
@@ -33,12 +38,12 @@ def exact_match_grader(submitted: str, target: str, case_sensitive: bool = False
     Returns 1.0 if answers match exactly, 0.0 otherwise.
     """
     if not submitted:
-        return 0.0
+        return strict_score(0.0)
 
     if case_sensitive:
-        return 1.0 if submitted.strip() == target.strip() else 0.0
+        return strict_score(1.0 if submitted.strip() == target.strip() else 0.0)
     else:
-        return 1.0 if normalize_answer(submitted) == normalize_answer(target) else 0.0
+        return strict_score(1.0 if normalize_answer(submitted) == normalize_answer(target) else 0.0)
 
 
 def partial_match_grader(submitted: str, target: str) -> float:
@@ -47,7 +52,7 @@ def partial_match_grader(submitted: str, target: str) -> float:
     Returns score between 0.0 and 1.0 based on similarity ratio.
     """
     if not submitted:
-        return 0.0
+        return strict_score(0.0)
 
     norm_submitted = normalize_answer(submitted)
     norm_target = normalize_answer(target)
@@ -59,7 +64,7 @@ def partial_match_grader(submitted: str, target: str) -> float:
     if norm_target in norm_submitted or norm_submitted in norm_target:
         similarity = max(similarity, 0.7)
 
-    return round(similarity, 2)
+    return strict_score(round(similarity, 2))
 
 
 def numeric_grader(submitted: str, target: str, tolerance: float = 0.0) -> float:
@@ -68,7 +73,7 @@ def numeric_grader(submitted: str, target: str, tolerance: float = 0.0) -> float
     Extracts numbers from answers and compares with optional tolerance.
     """
     if not submitted:
-        return 0.0
+        return strict_score(0.0)
 
     try:
         # Extract numbers from submission
@@ -76,25 +81,25 @@ def numeric_grader(submitted: str, target: str, tolerance: float = 0.0) -> float
         target_num = float(target)
 
         if not submitted_nums:
-            return 0.0
+            return strict_score(0.0)
 
         for num_str in submitted_nums:
             try:
                 submitted_num = float(num_str)
                 if tolerance > 0:
                     if abs(submitted_num - target_num) <= tolerance:
-                        return 1.0
+                        return strict_score(1.0)
                 else:
                     if abs(submitted_num - target_num) < 0.01:
-                        return 1.0
+                        return strict_score(1.0)
             except ValueError:
                 continue
 
         # No matching number found
-        return 0.0
+        return strict_score(0.0)
 
     except (ValueError, TypeError):
-        return 0.0
+        return strict_score(0.0)
 
 
 def list_match_grader(submitted: str, target_items: list, min_matches: int = 1) -> float:
@@ -103,7 +108,7 @@ def list_match_grader(submitted: str, target_items: list, min_matches: int = 1) 
     Checks if submitted answer contains required items from a list.
     """
     if not submitted or not target_items:
-        return 0.0
+        return strict_score(0.0)
 
     norm_submitted = normalize_answer(submitted)
     matches = 0
@@ -114,11 +119,11 @@ def list_match_grader(submitted: str, target_items: list, min_matches: int = 1) 
             matches += 1
 
     if matches >= len(target_items):
-        return 1.0
+        return strict_score(1.0)
     elif matches >= min_matches:
-        return matches / len(target_items)
+        return strict_score(matches / len(target_items))
     else:
-        return 0.0
+        return strict_score(0.0)
 
 
 def keyword_grader(submitted: str, required_keywords: list, optional_keywords: list = None) -> float:
@@ -127,7 +132,7 @@ def keyword_grader(submitted: str, required_keywords: list, optional_keywords: l
     Checks for required and optional keywords in the answer.
     """
     if not submitted:
-        return 0.0
+        return strict_score(0.0)
 
     norm_submitted = normalize_answer(submitted)
 
@@ -139,7 +144,7 @@ def keyword_grader(submitted: str, required_keywords: list, optional_keywords: l
 
     if required_matches < len(required_keywords):
         # Missing some required keywords
-        return (required_matches / len(required_keywords)) * 0.5
+        return strict_score((required_matches / len(required_keywords)) * 0.5)
 
     # All required keywords found, check optional
     score = 0.5
@@ -153,7 +158,7 @@ def keyword_grader(submitted: str, required_keywords: list, optional_keywords: l
     else:
         score = 1.0
 
-    return round(score, 2)
+    return strict_score(round(score, 2))
 
 
 def composite_grader(submitted: str, target: str, graders: list, weights: list = None) -> tuple[float, str]:
@@ -177,7 +182,7 @@ def composite_grader(submitted: str, target: str, graders: list, weights: list =
     final_score = total_score / total_weight if total_weight > 0 else 0.0
     reason = "; ".join(reasons)
 
-    return round(min(final_score, 1.0), 2), reason
+    return strict_score(round(min(final_score, 1.0), 2)), reason
 
 
 # Task-specific graders
@@ -188,7 +193,7 @@ def grade_company_founding_year(submitted: str, target: str = "2021") -> tuple[f
     """
     score = numeric_grader(submitted, target)
 
-    if score == 1.0:
+    if score >= MAX_SUBMISSION_SCORE:
         return clamp_submission_score(1.0), "Correct founding year"
     elif score > 0:
         return clamp_submission_score(score), "Partial credit - wrong year"
@@ -260,7 +265,7 @@ def grade_research_synthesis(submitted: str, target: str = "") -> tuple[float, s
         score = max(score - 0.2, 0.0)
         return clamp_submission_score(round(score, 2)), "Answer too short for proper synthesis"
 
-    if score == 1.0:
+    if score >= MAX_SUBMISSION_SCORE:
         return clamp_submission_score(1.0), "Comprehensive research synthesis with all key elements"
     elif score >= 0.7:
         return clamp_submission_score(score), "Good synthesis with most key elements"
