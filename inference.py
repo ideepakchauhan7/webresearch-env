@@ -15,11 +15,14 @@ from openai import OpenAI
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
-ENV_URL = os.getenv("ENV_URL", "http://localhost:8000")
+ENV_URL = os.getenv("ENV_URL")
 
 # Validate required environment variables
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN environment variable is required")
+
+if ENV_URL is None:
+    raise ValueError("ENV_URL environment variable is required")
 
 # Initialize OpenAI client
 client = OpenAI(
@@ -96,6 +99,16 @@ def parse_action(response: str) -> tuple[str, Optional[str]]:
 
 def run_episode(task_name: str, task_config: dict) -> dict:
     """Run a single episode for a task."""
+    # Test connection to environment first
+    try:
+        test_resp = requests.get(f"{ENV_URL}/health", timeout=5)
+        if test_resp.status_code != 200:
+            print(f"Error: Environment not healthy at {ENV_URL}", file=sys.stderr)
+            sys.exit(1)
+    except Exception as e:
+        print(f"Error: Cannot connect to environment at {ENV_URL}: {e}", file=sys.stderr)
+        sys.exit(1)
+
     # Reset environment
     reset_resp = requests.post(f"{ENV_URL}/reset", json={"task": task_name})
     reset_data = reset_resp.json()
