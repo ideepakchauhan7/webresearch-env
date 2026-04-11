@@ -16,6 +16,9 @@ TASKS = {
     "product_price_comparison": {"difficulty": "medium"},
     "research_synthesis": {"difficulty": "hard"}
 }
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the Web Research Agent API!"}
 
 @app.get("/health")
 async def health():
@@ -56,3 +59,10 @@ async def close():
 @app.get("/tasks")
 async def list_tasks():
     return {"tasks": [{"name": k, "difficulty": v["difficulty"]} for k, v in TASKS.items()]}
+
+def main():
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
