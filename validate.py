@@ -207,6 +207,21 @@ def check_openenv_yaml() -> bool:
     else:
         print(f"✓ Has {len(tasks)} tasks")
 
+    for task in tasks:
+        expected_reward = task.get("expected_reward")
+        task_name = task.get("name", "unknown")
+        if expected_reward is None:
+            print(f"✗ Task {task_name} is missing expected_reward")
+            all_pass = False
+            continue
+        if not (0.0 < float(expected_reward) < 1.0):
+            print(
+                f"✗ Task {task_name} expected_reward must be strictly between 0 and 1, found {expected_reward}"
+            )
+            all_pass = False
+        else:
+            print(f"✓ Task {task_name} expected_reward={float(expected_reward):.2f}")
+
     return all_pass
 
 

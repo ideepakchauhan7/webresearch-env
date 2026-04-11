@@ -10,19 +10,19 @@ tasks:
   - name: company_info_lookup
     description: "Find the founding year of Anthropic (easy difficulty)"
     difficulty: easy
-    expected_reward: 1.0
+    expected_reward: 0.99
     max_steps: 20
 
   - name: product_price_comparison
     description: "Compare prices of three headphone products from tech-retailer.com (medium difficulty)"
     difficulty: medium
-    expected_reward: 1.0
+    expected_reward: 0.99
     max_steps: 20
 
   - name: research_synthesis
     description: "Synthesize renewable energy growth research from multiple sources (hard difficulty)"
     difficulty: hard
-    expected_reward: 1.0
+    expected_reward: 0.99
     max_steps: 20
 
 observation:
