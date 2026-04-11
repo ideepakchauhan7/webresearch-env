@@ -19,6 +19,7 @@ ENV/
 *~
 .DS_Store
 .hf_space/
+.codex
 *.md
 !README.md
 *.sh

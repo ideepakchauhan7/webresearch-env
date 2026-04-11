@@ -1,10 +1,10 @@
 spec_version: "1"
 name: webresearch_env
-description: "Web Research OpenEnv - Agent tasks for web scraping, searching, and information extraction using FireCrawl"
+description: "Web Research OpenEnv - deterministic web research tasks with search, scraping, extraction, and grading"
 type: space
 runtime: fastapi
-app: server:app
-port: 8000
+app: server.app:app
+port: 7860
 
 tasks:
   - name: company_info_lookup

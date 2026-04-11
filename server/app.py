@@ -1,68 +1,87 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Optional
+"""Canonical FastAPI app for the WebResearch OpenEnv environment."""
 
-app = FastAPI()
+from __future__ import annotations
 
-class ResetRequest(BaseModel):
-    task: Optional[str] = "company_info_lookup"
+import os
 
-class ActionRequest(BaseModel):
-    action_type: str
-    action_arg: Optional[str] = ""
+import uvicorn
+from fastapi import FastAPI, HTTPException
 
-TASKS = {
-    "company_info_lookup": {"difficulty": "easy"},
-    "product_price_comparison": {"difficulty": "medium"},
-    "research_synthesis": {"difficulty": "hard"}
-}
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the Web Research Agent API!"}
+from environment import create_environment
+from models import (
+    CloseResponse,
+    EnvironmentState,
+    HealthResponse,
+    ResetRequest,
+    ResetResponse,
+    StepResponse,
+    TaskListResponse,
+    TaskSummary,
+    WebAction,
+)
+from tasks import get_all_tasks
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "env": "webresearch", "tasks": list(TASKS.keys())}
+PORT = int(os.getenv("PORT", "7860"))
+ENV_NAME = "webresearch_env"
 
-@app.post("/reset")
-async def reset(request: Optional[ResetRequest] = None):
-    return {
-        "observation": {
-            "content": "",
-            "status": "ready",
-            "task_description": "Find the founding year of Anthropic",
-            "current_url": None,
-            "scraped_urls": [],
-            "step_count": 0,
-            "max_steps": 20
-        },
-        "info": {"task": "company_info_lookup"}
-    }
+app = FastAPI(title="WebResearch OpenEnv", version="1.0.0")
+environment = create_environment()
 
-@app.post("/step")
-async def step(request: ActionRequest):
-    return {
-        "observation": {"content": "Action executed", "status": "ok"},
-        "reward": 0.1,
-        "done": False,
-        "info": {}
-    }
 
-@app.get("/state")
-async def state():
-    return {"current_task": None, "step_count": 0, "scraped_urls": [], "done": False}
+@app.get("/", response_model=HealthResponse)
+async def root() -> HealthResponse:
+    """Expose a lightweight health payload at the root for HF/validator pings."""
+    return await health()
 
-@app.post("/close")
-async def close():
-    return {"status": "closed"}
 
-@app.get("/tasks")
-async def list_tasks():
-    return {"tasks": [{"name": k, "difficulty": v["difficulty"]} for k, v in TASKS.items()]}
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    """Health check endpoint."""
+    task_names = [task["name"] for task in get_all_tasks()]
+    return HealthResponse(status="healthy", env=ENV_NAME, tasks=task_names, port=PORT)
 
-def main():
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+
+@app.post("/reset", response_model=ResetResponse)
+async def reset(request: ResetRequest | None = None) -> ResetResponse:
+    """Reset the active environment episode."""
+    task_name = (request.task if request else None) or "company_info_lookup"
+    try:
+        return ResetResponse(**environment.reset(task=task_name))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/step", response_model=StepResponse)
+async def step(request: WebAction) -> StepResponse:
+    """Execute a single environment action."""
+    response = environment.step(request.model_dump())
+    return StepResponse(**response)
+
+
+@app.get("/state", response_model=EnvironmentState)
+async def state() -> EnvironmentState:
+    """Return the current episode state."""
+    return EnvironmentState(**environment.state())
+
+
+@app.post("/close", response_model=CloseResponse)
+async def close() -> CloseResponse:
+    """Close the current episode."""
+    environment.close()
+    return CloseResponse(status="closed")
+
+
+@app.get("/tasks", response_model=TaskListResponse)
+async def list_tasks() -> TaskListResponse:
+    """List all supported tasks."""
+    tasks = [TaskSummary(**task) for task in get_all_tasks()]
+    return TaskListResponse(tasks=tasks)
+
+
+def main() -> None:
+    """Run the canonical app."""
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
+
 
 if __name__ == "__main__":
     main()

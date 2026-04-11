@@ -1,3 +1,9 @@
+---
+title: WebResearch OpenEnv
+sdk: docker
+app_port: 7860
+---
+
 # WebResearch OpenEnv
 
 A simulated web research environment for OpenEnv that tasks AI agents with web scraping, searching, and information extraction challenges.
@@ -107,14 +113,14 @@ pip install -r requirements.txt
 
 2. **Run the server**:
 ```bash
-python server.py
+python -m server.app
 # Or with uvicorn directly
-uvicorn server:app --host 0.0.0.0 --port 8000
+uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
 3. **Test the environment**:
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:7860/health
 ```
 
 ### Docker
@@ -126,7 +132,7 @@ docker build -t webresearch-env .
 
 2. **Run the container**:
 ```bash
-docker run -p 8000:8000 webresearch-env
+docker run -p 7860:7860 webresearch-env
 ```
 
 ### Hugging Face Spaces
@@ -145,13 +151,15 @@ Run the inference script to evaluate an LLM on all tasks:
 export HF_TOKEN="your-huggingface-token"
 export API_BASE_URL="https://api.openai.com/v1"
 export MODEL_NAME="gpt-4.1-mini"
-export ENV_URL="http://localhost:8000"
 
 # Run all tasks
 python inference.py
 
 # Run specific task
 python inference.py --task company_info_lookup
+
+# Optional: target a running remote environment
+ENV_URL="http://localhost:7860" python inference.py
 ```
 
 ### Expected Output Format
@@ -160,8 +168,8 @@ python inference.py --task company_info_lookup
 [START] task=company_info_lookup env=webresearch_env model=gpt-4.1-mini
 [STEP] step=1 action=search('Anthropic founding year') reward=0.10 done=false error=null
 [STEP] step=2 action=scrape('https://anthropic.com/about') reward=0.25 done=false error=null
-[STEP] step=3 action=submit('2021') reward=1.05 done=true error=null
-[END] success=true steps=3 rewards=0.10,0.25,1.05
+[STEP] step=3 action=submit('2021') reward=0.99 done=true error=null
+[END] success=true steps=3 rewards=0.10,0.25,0.99
 ```
 
 ## Validation
@@ -184,15 +192,15 @@ This checks:
 
 ## Baseline Performance
 
-Run with `gpt-4.1-mini` (or similar model):
+Deterministic fallback baseline from `python inference.py`:
 
 | Task | Expected Success | Avg Steps | Max Reward |
 |------|------------------|-----------|------------|
-| company_info_lookup | 90%+ | 3-5 | 1.0 |
-| product_price_comparison | 80%+ | 5-8 | 1.0 |
-| research_synthesis | 60%+ | 10-15 | 1.0 |
+| company_info_lookup | 100% | 3 | 0.99 |
+| product_price_comparison | 100% | 4 | 0.99 |
+| research_synthesis | 100% | 6 | 0.99 |
 
-*Note: Performance will vary based on model capability and prompt engineering.*
+*When the OpenAI-compatible endpoint is reachable, the script asks the model to confirm each next action and falls back to the deterministic plan if the call fails or drifts.*
 
 ## Project Structure
 
@@ -202,12 +210,12 @@ Run with `gpt-4.1-mini` (or similar model):
 ├── openenv.yaml          # Required: OpenEnv specification
 ├── Dockerfile            # Required: Docker configuration
 ├── requirements.txt      # Python dependencies
-├── server.py             # FastAPI server
 ├── environment.py        # Environment implementation
 ├── models.py             # Pydantic models
 ├── tasks.py              # Task definitions
 ├── graders.py            # Grading functions
 ├── validate.py           # Pre-submission validation
+├── server/               # Canonical FastAPI app package
 └── README.md             # Documentation
 ```
 

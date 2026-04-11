@@ -43,4 +43,7 @@ Homepage = "https://huggingface.co/spaces/ideepakchauhan7/webresearch-env"
 Repository = "https://github.com/ideepakchauhan7/webresearch-env"
 
 [tool.setuptools]
-py-modules = ["server", "inference", "app"]
+py-modules = ["environment", "graders", "inference", "models", "tasks", "validate"]
+
+[tool.setuptools.packages.find]
+include = ["server"]

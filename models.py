@@ -3,9 +3,10 @@ Pydantic models for WebResearch OpenEnv.
 Defines Observation, Action, and Reward types.
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class ActionType(str, Enum):
@@ -32,11 +33,12 @@ class WebAction(BaseModel):
 
 class WebObservation(BaseModel):
     """Observation returned from the environment."""
+
     content: str = Field(default="", description="Scraped or extracted content")
     status: str = Field(default="ok", description="Status of the observation")
     task_description: str = Field(default="", description="Description of current task")
     current_url: Optional[str] = Field(default=None, description="Current URL being viewed")
-    scraped_urls: List[str] = Field(default=[], description="List of URLs scraped so far")
+    scraped_urls: List[str] = Field(default_factory=list, description="List of URLs scraped so far")
     step_count: int = Field(default=0, description="Current step number")
     max_steps: int = Field(default=20, description="Maximum steps allowed")
 
@@ -70,12 +72,13 @@ class WebReward(BaseModel):
 
 class TaskConfig(BaseModel):
     """Configuration for a task."""
+
     name: str = Field(..., description="Task identifier")
     description: str = Field(..., description="Task description")
     difficulty: str = Field(..., description="Task difficulty: easy/medium/hard")
     target_answer: str = Field(..., description="Expected answer")
     allowed_domains: Optional[List[str]] = Field(default=None, description="Allowed domains for scraping")
-    hints: Optional[List[str]] = Field(default=[], description="Hints for the task")
+    hints: Optional[List[str]] = Field(default_factory=list, description="Hints for the task")
 
     class Config:
         json_schema_extra = {
@@ -102,10 +105,12 @@ class TaskResult(BaseModel):
 
 class EnvironmentState(BaseModel):
     """Current state of the environment."""
+
     current_task: Optional[str] = Field(default=None, description="Currently active task")
     step_count: int = Field(default=0, description="Current step number")
-    scraped_content: Dict[str, str] = Field(default={}, description="Content scraped from URLs")
-    search_results: List[Dict[str, Any]] = Field(default=[], description="Results from searches")
+    scraped_content: Dict[str, str] = Field(default_factory=dict, description="Content scraped from URLs")
+    scraped_urls: List[str] = Field(default_factory=list, description="Ordered URLs scraped in the episode")
+    search_results: List[Dict[str, Any]] = Field(default_factory=list, description="Results from searches")
     submitted_answer: Optional[str] = Field(default=None, description="Answer submitted by agent")
     done: bool = Field(default=False, description="Whether episode is complete")
 
@@ -120,5 +125,41 @@ class StepResponse(BaseModel):
 
 class ResetResponse(BaseModel):
     """Response from reset action."""
+
     observation: WebObservation
     info: Dict[str, Any]
+
+
+class ResetRequest(BaseModel):
+    """Request model for reset."""
+
+    task: Optional[str] = Field(default="company_info_lookup", description="Task to initialize")
+
+
+class TaskSummary(BaseModel):
+    """Task metadata exposed by the server."""
+
+    name: str
+    description: str
+    difficulty: str
+
+
+class TaskListResponse(BaseModel):
+    """Response model for listing tasks."""
+
+    tasks: List[TaskSummary]
+
+
+class HealthResponse(BaseModel):
+    """Health check response."""
+
+    status: str
+    env: str
+    tasks: List[str]
+    port: int
+
+
+class CloseResponse(BaseModel):
+    """Close endpoint response."""
+
+    status: str

@@ -1,0 +1,10 @@
+.git
+.gitignore
+.codex
+.hf_space
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache

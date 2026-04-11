@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""
-Pre-submission validation script for WebResearch OpenEnv.
-Checks compliance with OpenEnv specification.
-"""
+"""Pre-submission validation for the WebResearch OpenEnv hackathon repo."""
 
+from __future__ import annotations
+
+import importlib
 import os
-import sys
-import yaml
-import json
+import re
 import subprocess
+import sys
 from pathlib import Path
+
+import yaml
 
 
 def check_file_exists(filepath: str, description: str) -> bool:
@@ -17,13 +18,13 @@ def check_file_exists(filepath: str, description: str) -> bool:
     if Path(filepath).exists():
         print(f"✓ {description}: {filepath}")
         return True
-    else:
-        print(f"✗ {description} MISSING: {filepath}")
-        return False
+
+    print(f"✗ {description} MISSING: {filepath}")
+    return False
 
 
 def check_required_files() -> bool:
-    """Check for required files."""
+    """Check for required project files."""
     print("\n=== Checking Required Files ===\n")
 
     required = [
@@ -36,35 +37,51 @@ def check_required_files() -> bool:
         ("models.py", "Pydantic models"),
         ("tasks.py", "Task definitions"),
         ("graders.py", "Grader functions"),
-        ("server.py", "FastAPI server"),
+        ("server/app.py", "Canonical FastAPI app"),
+        ("server/__init__.py", "Server package init"),
+        (".dockerignore", "Docker ignore file"),
     ]
 
-    all_exist = True
-    for filepath, description in required:
-        if not check_file_exists(filepath, description):
-            all_exist = False
+    return all(check_file_exists(path, description) for path, description in required)
 
-    return all_exist
+
+def check_server_layout() -> bool:
+    """Ensure the canonical import path is unambiguous."""
+    print("\n=== Checking Server Layout ===\n")
+
+    all_pass = True
+    if Path("server.py").exists():
+        print("✗ server.py should not exist at the repo root because it shadows the server package")
+        all_pass = False
+    else:
+        print("✓ No root-level server.py shadowing the package")
+
+    try:
+        module = importlib.import_module("server.app")
+        print(f"✓ server.app import works: {module.__file__}")
+    except Exception as exc:
+        print(f"✗ server.app import failed: {exc}")
+        all_pass = False
+
+    return all_pass
 
 
 def check_inference_script() -> bool:
-    """Check inference.py for required elements."""
-    print("\n=== Checking inference.py ===\n")
+    """Check inference.py for required structure and defaults."""
+    print("\n=== Checking inference.py Source ===\n")
 
-    with open("inference.py", "r") as f:
-        content = f.read()
-
+    content = Path("inference.py").read_text()
     checks = [
         ("API_BASE_URL", "API_BASE_URL environment variable"),
         ("MODEL_NAME", "MODEL_NAME environment variable"),
         ("HF_TOKEN", "HF_TOKEN environment variable"),
         ('os.getenv("API_BASE_URL"', "API_BASE_URL with default"),
         ('os.getenv("MODEL_NAME"', "MODEL_NAME with default"),
-        ("[START]", "[START] log marker"),
-        ("[STEP]", "[STEP] log marker"),
-        ("[END]", "[END] log marker"),
+        ("ENV_URL = os.getenv(", "Optional ENV_URL override"),
         ("from openai import OpenAI", "OpenAI client import"),
-        ("openai", "OpenAI usage"),
+        ("[START]", "START marker"),
+        ("[STEP]", "STEP marker"),
+        ("[END]", "END marker"),
     ]
 
     all_pass = True
@@ -74,87 +91,182 @@ def check_inference_script() -> bool:
         else:
             print(f"✗ {description} MISSING")
             all_pass = False
+
+    if "ENV_URL environment variable is required" in content:
+        print("✗ ENV_URL is still treated as mandatory")
+        all_pass = False
+    else:
+        print("✓ ENV_URL is not mandatory")
+
+    return all_pass
+
+
+def check_inference_execution() -> bool:
+    """Run the inference script with a dummy token and validate strict stdout formatting."""
+    print("\n=== Checking inference.py Execution ===\n")
+
+    env = os.environ.copy()
+    env["HF_TOKEN"] = "dummy"
+    env.pop("ENV_URL", None)
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "inference.py"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print("✗ inference.py timed out")
+        return False
+
+    if result.returncode != 0:
+        print(f"✗ inference.py exited with code {result.returncode}")
+        if result.stderr.strip():
+            print(result.stderr.strip())
+        return False
+
+    stdout_lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if not stdout_lines:
+        print("✗ inference.py produced no stdout")
+        return False
+
+    start_pattern = re.compile(r"^\[START\] task=[^ ]+ env=[^ ]+ model=.+$")
+    step_pattern = re.compile(
+        r"^\[STEP\] step=\d+ action=.* reward=\d+\.\d{2} done=(true|false) error=.*$"
+    )
+    end_pattern = re.compile(
+        r"^\[END\] success=(true|false) steps=\d+ rewards=(\d+\.\d{2}(,\d+\.\d{2})*)?$"
+    )
+
+    start_count = 0
+    end_count = 0
+    all_pass = True
+
+    for line in stdout_lines:
+        if start_pattern.match(line):
+            start_count += 1
+            continue
+        if step_pattern.match(line):
+            continue
+        if end_pattern.match(line):
+            end_count += 1
+            continue
+        print(f"✗ Unexpected stdout line: {line}")
+        all_pass = False
+
+    if start_count != 3 or end_count != 3:
+        print(f"✗ Expected 3 task runs, found {start_count} START lines and {end_count} END lines")
+        all_pass = False
+    else:
+        print("✓ inference.py completed all 3 tasks with strict stdout formatting")
+
+    if all_pass and result.stderr.strip():
+        print("✓ inference.py stderr only contains non-fatal diagnostics")
 
     return all_pass
 
 
 def check_openenv_yaml() -> bool:
-    """Check openenv.yaml structure."""
+    """Check openenv.yaml structure and deployment settings."""
     print("\n=== Checking openenv.yaml ===\n")
 
     try:
-        with open("openenv.yaml", "r") as f:
-            config = yaml.safe_load(f)
-
-        required_keys = [
-            "spec_version",
-            "name",
-            "description",
-            "type",
-            "runtime",
-            "tasks",
-        ]
-
-        all_pass = True
-        for key in required_keys:
-            if key in config:
-                print(f"✓ {key}: {config.get(key)}")
-            else:
-                print(f"✗ {key} MISSING")
-                all_pass = False
-
-        # Check tasks
-        if "tasks" in config:
-            tasks = config["tasks"]
-            if len(tasks) >= 3:
-                print(f"✓ Has {len(tasks)} tasks (minimum 3)")
-                for task in tasks:
-                    if "name" in task and "difficulty" in task:
-                        print(f"  - {task['name']} ({task['difficulty']})")
-            else:
-                print(f"✗ Has only {len(tasks)} tasks (minimum 3 required)")
-                all_pass = False
-
-        return all_pass
-
-    except Exception as e:
-        print(f"✗ Error parsing openenv.yaml: {e}")
+        config = yaml.safe_load(Path("openenv.yaml").read_text())
+    except Exception as exc:
+        print(f"✗ Error parsing openenv.yaml: {exc}")
         return False
+
+    required_keys = ["spec_version", "name", "description", "type", "runtime", "tasks", "app", "port"]
+    all_pass = True
+    for key in required_keys:
+        if key in config:
+            print(f"✓ {key}: {config.get(key)}")
+        else:
+            print(f"✗ {key} MISSING")
+            all_pass = False
+
+    if config.get("app") != "server.app:app":
+        print(f"✗ app should be server.app:app, found {config.get('app')}")
+        all_pass = False
+    else:
+        print("✓ Canonical app entrypoint is server.app:app")
+
+    if config.get("port") != 7860:
+        print(f"✗ port should be 7860, found {config.get('port')}")
+        all_pass = False
+    else:
+        print("✓ openenv.yaml uses port 7860")
+
+    tasks = config.get("tasks", [])
+    if len(tasks) < 3:
+        print(f"✗ Has only {len(tasks)} tasks (minimum 3 required)")
+        all_pass = False
+    else:
+        print(f"✓ Has {len(tasks)} tasks")
+
+    return all_pass
+
+
+def check_readme_frontmatter() -> bool:
+    """Verify Hugging Face Space metadata is present."""
+    print("\n=== Checking README Frontmatter ===\n")
+
+    content = Path("README.md").read_text()
+    if not content.startswith("---\n"):
+        print("✗ README.md is missing HF Space frontmatter")
+        return False
+
+    _, frontmatter, _ = content.split("---", 2)
+    try:
+        metadata = yaml.safe_load(frontmatter)
+    except Exception as exc:
+        print(f"✗ Failed to parse README frontmatter: {exc}")
+        return False
+
+    expected = {"sdk": "docker", "app_port": 7860}
+    all_pass = True
+    for key, expected_value in expected.items():
+        if metadata.get(key) != expected_value:
+            print(f"✗ README frontmatter {key} should be {expected_value}, found {metadata.get(key)}")
+            all_pass = False
+        else:
+            print(f"✓ README frontmatter {key}: {expected_value}")
+    return all_pass
 
 
 def check_models() -> bool:
-    """Check Pydantic models."""
+    """Check Pydantic models instantiate correctly."""
     print("\n=== Checking Pydantic Models ===\n")
 
     try:
-        import models
-        from models import WebAction, WebObservation
+        from models import EnvironmentState, WebAction, WebObservation
 
-        # Try to instantiate models
-        action = WebAction(action_type="scrape", action_arg="https://example.com")
-        observation = WebObservation(content="Test content")
-
+        WebAction(action_type="scrape", action_arg="https://example.com")
+        WebObservation(content="Test content")
+        EnvironmentState()
         print("✓ WebAction model valid")
         print("✓ WebObservation model valid")
-
+        print("✓ EnvironmentState model valid")
         return True
-    except Exception as e:
-        print(f"✗ Model validation error: {e}")
+    except Exception as exc:
+        print(f"✗ Model validation error: {exc}")
         return False
 
 
 def check_dockerfile() -> bool:
-    """Check Dockerfile."""
+    """Check Dockerfile deployment choices."""
     print("\n=== Checking Dockerfile ===\n")
 
-    with open("Dockerfile", "r") as f:
-        content = f.read()
-
+    content = Path("Dockerfile").read_text()
     checks = [
         ("FROM", "Base image"),
         ("requirements.txt", "Requirements installation"),
-        ("EXPOSE", "Port exposure"),
-        ("CMD", "Command"),
+        ("COPY . .", "Full project copy"),
+        ("EXPOSE 7860", "Port exposure"),
+        ("server.app:app", "Canonical app command"),
     ]
 
     all_pass = True
@@ -164,169 +276,146 @@ def check_dockerfile() -> bool:
         else:
             print(f"✗ {description} MISSING")
             all_pass = False
-
     return all_pass
 
 
 def check_tasks() -> bool:
-    """Check task definitions."""
+    """Check task metadata and difficulty coverage."""
     print("\n=== Checking Tasks ===\n")
 
     try:
         import tasks
+
         all_tasks = tasks.get_all_tasks()
-
-        if len(all_tasks) >= 3:
-            print(f"✓ Found {len(all_tasks)} tasks")
-        else:
-            print(f"✗ Found only {len(all_tasks)} tasks (minimum 3)")
+        if len(all_tasks) < 3:
+            print(f"✗ Found only {len(all_tasks)} tasks")
             return False
 
-        difficulties = set()
+        difficulties = {task.get("difficulty") for task in all_tasks}
         for task in all_tasks:
-            name = task.get("name", "unknown")
-            difficulty = task.get("difficulty", "unknown")
-            difficulties.add(difficulty)
-            print(f"  - {name}: {difficulty}")
+            print(f"✓ {task['name']} ({task['difficulty']})")
 
-        # Check for gradle of difficulties
-        if "easy" in difficulties:
-            print("✓ Has easy task")
-        else:
-            print("✗ Missing easy task")
+        missing = {"easy", "medium", "hard"} - difficulties
+        if missing:
+            print(f"✗ Missing difficulty levels: {sorted(missing)}")
             return False
 
-        if "medium" in difficulties:
-            print("✓ Has medium task")
-        else:
-            print("✗ Missing medium task")
-            return False
-
-        if "hard" in difficulties:
-            print("✓ Has hard task")
-        else:
-            print("✗ Missing hard task")
-            return False
-
+        print("✓ Task difficulty ladder is complete")
         return True
-
-    except Exception as e:
-        print(f"✗ Task validation error: {e}")
+    except Exception as exc:
+        print(f"✗ Task validation error: {exc}")
         return False
 
 
 def check_graders() -> bool:
-    """Check grader functions."""
+    """Check grader outputs stay inside the validator-safe range."""
     print("\n=== Checking Graders ===\n")
 
     try:
         import graders
 
-        test_answer = "2021"
-        score, reason = graders.grade_company_founding_year(test_answer, "2021")
+        samples = [
+            graders.grade_company_founding_year("2021"),
+            graders.grade_product_price_comparison(
+                "Product A: $99.99, Product B: $129.99, Product C: $89.99. Cheapest: Product C. Most expensive: Product B."
+            ),
+            graders.grade_research_synthesis(
+                "Renewable energy grew strongly in 2023, with solar growth of 30 percent and wind growth of 15 percent. "
+                "Capacity rose across solar and offshore wind markets, and investment reached $500 billion. "
+                "Policy support helped the market grow, while grid integration and supply chain issues remained challenges."
+            ),
+        ]
 
-        if 0.0 <= score <= 1.0:
-            print(f"✓ Grader returns score in range [0.0, 1.0]: {score}")
-        else:
-            print(f"✗ Grader returns score out of range: {score}")
-            return False
-
-        print(f"  - Test score: {score}, reason: {reason}")
-
-        return True
-
-    except Exception as e:
-        print(f"✗ Grader validation error: {e}")
+        all_pass = True
+        for index, (score, reason) in enumerate(samples, start=1):
+            if not (0.0 <= score <= 1.0):
+                print(f"✗ Grader {index} produced out-of-range score {score}")
+                all_pass = False
+            else:
+                print(f"✓ Grader {index} score={score:.2f} reason={reason}")
+        return all_pass
+    except Exception as exc:
+        print(f"✗ Grader validation error: {exc}")
         return False
 
 
 def check_environment() -> bool:
-    """Check environment implementation."""
+    """Smoke test the environment implementation directly."""
     print("\n=== Checking Environment ===\n")
 
     try:
-        import environment
         from environment import create_environment
 
         env = create_environment()
-
-        # Test reset
-        result = env.reset(task="company_info_lookup")
-        if "observation" in result and "info" in result:
-            print("✓ reset() returns correct structure")
-        else:
+        reset_result = env.reset(task="company_info_lookup")
+        if "observation" not in reset_result or "info" not in reset_result:
             print("✗ reset() returns incorrect structure")
             return False
+        print("✓ reset() returns correct structure")
 
-        # Test step
-        action = {"action_type": "scrape", "action_arg": "https://anthropic.com/about"}
-        result = env.step(action)
-        if all(k in result for k in ["observation", "reward", "done", "info"]):
-            print("✓ step() returns correct structure")
-        else:
-            print("✗ step() returns incorrect structure")
-            return False
+        search_result = env.step({"action_type": "search", "action_arg": "Anthropic founding year"})
+        scrape_result = env.step({"action_type": "scrape", "action_arg": "https://anthropic.com/about"})
+        submit_result = env.step({"action_type": "submit", "action_arg": "2021"})
 
-        # Check reward range
-        reward = result.get("reward", 0)
-        if -1.0 <= reward <= 1.0:
-            print(f"✓ Reward in valid range: {reward}")
-        else:
-            print(f"✗ Reward out of range: {reward}")
-            return False
+        for name, result in [("search", search_result), ("scrape", scrape_result), ("submit", submit_result)]:
+            if not all(key in result for key in ["observation", "reward", "done", "info"]):
+                print(f"✗ {name} step returns incorrect structure")
+                return False
+            reward = float(result["reward"])
+            if not (0.0 <= reward <= 1.0):
+                print(f"✗ {name} step reward out of range: {reward}")
+                return False
+            print(f"✓ {name} step reward={reward:.2f}")
 
-        # Test state
         state = env.state()
-        if "current_task" in state:
-            print("✓ state() returns correct structure")
-        else:
+        if "current_task" not in state or "scraped_content" not in state:
             print("✗ state() returns incorrect structure")
             return False
+        print("✓ state() returns correct structure")
 
         return True
-
-    except Exception as e:
-        print(f"✗ Environment validation error: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception as exc:
+        print(f"✗ Environment validation error: {exc}")
         return False
 
 
-def main():
+def main() -> int:
     """Run all validation checks."""
     print("=" * 60)
     print("WebResearch OpenEnv Pre-Submission Validation")
     print("=" * 60)
 
-    results = []
+    checks = [
+        ("Required Files", check_required_files),
+        ("Server Layout", check_server_layout),
+        ("Inference Script Source", check_inference_script),
+        ("Inference Script Execution", check_inference_execution),
+        ("OpenEnv YAML", check_openenv_yaml),
+        ("README Frontmatter", check_readme_frontmatter),
+        ("Pydantic Models", check_models),
+        ("Dockerfile", check_dockerfile),
+        ("Tasks", check_tasks),
+        ("Graders", check_graders),
+        ("Environment", check_environment),
+    ]
 
-    results.append(("Required Files", check_required_files()))
-    results.append(("Inference Script", check_inference_script()))
-    results.append(("OpenEnv YAML", check_openenv_yaml()))
-    results.append(("Pydantic Models", check_models()))
-    results.append(("Dockerfile", check_dockerfile()))
-    results.append(("Tasks", check_tasks()))
-    results.append(("Graders", check_graders()))
-    results.append(("Environment", check_environment()))
+    results = [(name, fn()) for name, fn in checks]
 
     print("\n" + "=" * 60)
     print("VALIDATION SUMMARY")
     print("=" * 60)
-
     for name, passed in results:
-        status = "PASS" if passed else "FAIL"
         symbol = "✓" if passed else "✗"
+        status = "PASS" if passed else "FAIL"
         print(f"{symbol} {name}: {status}")
 
-    all_passed = all(p for _, p in results)
-
+    all_passed = all(passed for _, passed in results)
     print("\n" + "=" * 60)
     if all_passed:
         print("✓ ALL CHECKS PASSED - Ready for submission!")
     else:
         print("✗ SOME CHECKS FAILED - Fix issues before submission")
     print("=" * 60)
-
     return 0 if all_passed else 1
 
 

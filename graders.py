@@ -4,8 +4,15 @@ Each grader evaluates task completion and returns a score between 0.0 and 1.0.
 """
 
 import re
-from typing import Optional
 from difflib import SequenceMatcher
+
+MIN_SUBMISSION_SCORE = 0.01
+MAX_SUBMISSION_SCORE = 0.99
+
+
+def clamp_submission_score(score: float) -> float:
+    """Keep reported grader scores inside the validator-safe range."""
+    return round(min(max(score, MIN_SUBMISSION_SCORE), MAX_SUBMISSION_SCORE), 2)
 
 
 def normalize_answer(text: str) -> str:
@@ -182,43 +189,47 @@ def grade_company_founding_year(submitted: str, target: str = "2021") -> tuple[f
     score = numeric_grader(submitted, target)
 
     if score == 1.0:
-        return 1.0, "Correct founding year"
+        return clamp_submission_score(1.0), "Correct founding year"
     elif score > 0:
-        return score, "Partial credit - wrong year"
+        return clamp_submission_score(score), "Partial credit - wrong year"
     else:
         # Check if submission contains the year 2021 as text
         if "2021" in submitted:
-            return 1.0, "Correct founding year found in text"
-        return 0.0, "No valid founding year found"
+            return clamp_submission_score(1.0), "Correct founding year found in text"
+        return clamp_submission_score(0.0), "No valid founding year found"
 
 
 def grade_product_price_comparison(submitted: str, target: str = "Product A: $99, Product B: $129, Product C: $89") -> tuple[float, str]:
     """
     Grade task: Compare prices across multiple products.
     """
-    # Extract prices from submission
-    prices = re.findall(r'\$?(\d+)', submitted)
+    normalized = normalize_answer(submitted)
+    checks = []
 
-    if len(prices) >= 3:
-        try:
-            prices = [int(p) for p in prices[:3]]
-            if prices == [99, 129, 89] or prices == [89, 99, 129]:  # Any order
-                return 1.0, "All three prices correctly identified"
-            elif len(prices) >= 2:
-                return 0.6, "Two of three prices identified"
-            else:
-                return 0.3, "Only one price identified"
-        except ValueError:
-            pass
+    labeled_prices = {
+        "Product A": "99",
+        "Product B": "129",
+        "Product C": "89",
+    }
+    for product, price in labeled_prices.items():
+        pattern = rf"{product.lower()}[^\d$]*(?:\$)?{price}"
+        checks.append(1.0 if re.search(pattern, normalized) else 0.0)
 
-    # Keyword-based fallback
-    score = keyword_grader(
+    checks.append(1.0 if "cheapest" in normalized and "product c" in normalized else 0.0)
+    checks.append(1.0 if ("most expensive" in normalized or "expensive" in normalized) and "product b" in normalized else 0.0)
+
+    score = sum(checks) / len(checks)
+    if score >= 0.99:
+        return clamp_submission_score(score), "All prices and comparisons correctly identified"
+    if score >= 0.6:
+        return clamp_submission_score(score), "Most prices correctly identified"
+
+    keyword_score = keyword_grader(
         submitted,
         required_keywords=["Product A", "Product B", "Product C"],
-        optional_keywords=["$99", "$129", "$89", "cheapest", "expensive"]
+        optional_keywords=["$99", "$129", "$89", "cheapest", "expensive"],
     )
-
-    return score, "Keyword-based grading"
+    return clamp_submission_score(max(score, keyword_score)), "Partial product price comparison"
 
 
 def grade_research_synthesis(submitted: str, target: str = "") -> tuple[float, str]:
@@ -247,13 +258,13 @@ def grade_research_synthesis(submitted: str, target: str = "") -> tuple[float, s
     # Additional check for coherence (length indicates some synthesis)
     if len(submitted.split()) < 20:
         score = max(score - 0.2, 0.0)
-        return round(score, 2), "Answer too short for proper synthesis"
+        return clamp_submission_score(round(score, 2)), "Answer too short for proper synthesis"
 
     if score == 1.0:
-        return 1.0, "Comprehensive research synthesis with all key elements"
+        return clamp_submission_score(1.0), "Comprehensive research synthesis with all key elements"
     elif score >= 0.7:
-        return score, "Good synthesis with most key elements"
+        return clamp_submission_score(score), "Good synthesis with most key elements"
     elif score >= 0.4:
-        return score, "Partial synthesis, missing key elements"
+        return clamp_submission_score(score), "Partial synthesis, missing key elements"
     else:
-        return score, "Insufficient synthesis"
+        return clamp_submission_score(score), "Insufficient synthesis"

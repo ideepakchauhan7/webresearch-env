@@ -3,13 +3,12 @@ WebResearch OpenEnv Environment Implementation.
 Implements the OpenEnv interface with reset, step, state, and close methods.
 """
 
-import json
-from typing import Dict, Any, Optional, List
-from models import (
-    WebAction, WebObservation, StepResponse, ResetResponse,
-    EnvironmentState
-)
-from tasks import get_task, get_all_tasks, get_simulated_content, SIMULATED_CONTENT
+from typing import Any, Dict, List, Optional
+
+from tasks import SIMULATED_CONTENT, get_simulated_content, get_task
+
+MIN_REPORTED_REWARD = 0.01
+MAX_REPORTED_REWARD = 0.99
 
 
 class WebResearchEnvironment:
@@ -39,6 +38,11 @@ class WebResearchEnvironment:
         self.content_extracted = []
         self.reward_accumulated = 0.0
 
+    @staticmethod
+    def _bounded_reward(value: float) -> float:
+        """Clamp rewards into the validator-safe range."""
+        return round(min(max(value, MIN_REPORTED_REWARD), MAX_REPORTED_REWARD), 2)
+
     def reset(self, task: str = None) -> Dict[str, Any]:
         """
         Reset the environment for a new episode.
@@ -49,7 +53,7 @@ class WebResearchEnvironment:
         Returns:
             Initial observation
         """
-        self.current_task = task
+        self.current_task = task or "company_info_lookup"
         self.step_count = 0
         self.scraped_content = {}
         self.search_results = []
@@ -61,13 +65,13 @@ class WebResearchEnvironment:
         self.content_extracted = []
         self.reward_accumulated = 0.0
 
-        task_obj = get_task(task)
+        task_obj = get_task(self.current_task)
         observation = task_obj.get_initial_observation()
 
         return {
             "observation": observation,
             "info": {
-                "task": task,
+                "task": self.current_task,
                 "difficulty": task_obj.difficulty
             }
         }
@@ -82,6 +86,8 @@ class WebResearchEnvironment:
         return {
             "current_task": self.current_task,
             "step_count": self.step_count,
+            "scraped_content": self.scraped_content,
+            "search_results": self.search_results,
             "scraped_urls": self.scraped_urls,
             "done": self.done,
             "submitted_answer": self.submitted_answer
@@ -107,7 +113,7 @@ class WebResearchEnvironment:
                     content="Environment is done. Call reset() to start a new episode.",
                     status="done"
                 ),
-                "reward": 0.0,
+                "reward": self._bounded_reward(0.0),
                 "done": True,
                 "info": {"error": "Episode already complete"}
             }
@@ -122,7 +128,7 @@ class WebResearchEnvironment:
                     content="Maximum steps reached. Episode terminated.",
                     status="max_steps"
                 ),
-                "reward": -0.1,  # Penalty for not completing
+                "reward": self._bounded_reward(0.0),
                 "done": True,
                 "info": {
                     "error": "Maximum steps reached",
@@ -140,7 +146,7 @@ class WebResearchEnvironment:
                     content=f"Invalid action type: {action_type}. Valid actions: scrape, search, extract, submit",
                     status="error"
                 ),
-                "reward": -0.05,  # Small penalty for invalid action
+                "reward": self._bounded_reward(0.01),
                 "done": False,
                 "info": {"error": f"Invalid action type: {action_type}"}
             }
@@ -158,7 +164,7 @@ class WebResearchEnvironment:
         # Should not reach here
         return {
             "observation": self._create_observation(content="Unknown error", status="error"),
-            "reward": 0.0,
+            "reward": self._bounded_reward(0.0),
             "done": True,
             "info": {"error": "Unexpected state"}
         }
@@ -184,7 +190,7 @@ class WebResearchEnvironment:
                     content="Error: URL required for scrape action",
                     status="error"
                 ),
-                "reward": -0.05,
+                "reward": self._bounded_reward(0.01),
                 "done": False,
                 "info": {"error": "URL required"}
             }
@@ -203,7 +209,7 @@ class WebResearchEnvironment:
                     content=f"(Already scraped) {self.scraped_content[url][:500]}...",
                     status="cached"
                 ),
-                "reward": -0.01,  # Small penalty for redundant action
+                "reward": self._bounded_reward(0.02),
                 "done": False,
                 "info": {"cached": True}
             }
@@ -224,7 +230,7 @@ class WebResearchEnvironment:
                 content=content[:1000] + ("..." if len(content) > 1000 else ""),
                 status="success"
             ),
-            "reward": reward,
+            "reward": self._bounded_reward(reward),
             "done": False,
             "info": {"url": url, "content_length": len(content)}
         }
@@ -237,7 +243,7 @@ class WebResearchEnvironment:
                     content="Error: Query required for search action",
                     status="error"
                 ),
-                "reward": -0.05,
+                "reward": self._bounded_reward(0.01),
                 "done": False,
                 "info": {"error": "Query required"}
             }
@@ -245,16 +251,40 @@ class WebResearchEnvironment:
         # Simulate search results based on query
         results = []
         query_lower = query.lower()
+        query_terms = []
+        for raw_term in query_lower.split():
+            term = raw_term.strip(".,!?;:()")
+            if len(term) <= 2:
+                continue
+            query_terms.append(term)
+            for suffix in ("ing", "ed", "es", "s"):
+                if term.endswith(suffix) and len(term) - len(suffix) >= 3:
+                    query_terms.append(term[:-len(suffix)])
+                    break
+
+        query_terms = list(dict.fromkeys(query_terms))
+        minimum_score = 1 if len(query_terms) <= 1 else 2
 
         # Match against available URLs
         for url, content in SIMULATED_CONTENT.items():
+            url_lower = url.lower()
             content_lower = content.lower()
-            if any(term in content_lower for term in query_lower.split()):
+            score = sum(
+                1
+                for term in query_terms
+                if term in content_lower or term in url_lower
+            )
+            if score >= minimum_score:
                 results.append({
                     "url": url,
                     "title": url.split("/")[-1].replace("-", " ").title(),
-                    "snippet": content[:200] + "..."
+                    "snippet": content[:200] + "...",
+                    "score": score,
                 })
+
+        results.sort(key=lambda item: (-item["score"], item["url"]))
+        for result in results:
+            result.pop("score", None)
 
         self.search_results.extend(results)
 
@@ -270,14 +300,14 @@ class WebResearchEnvironment:
             reward = 0.1
         else:
             content = f"No results found for '{query}'. Try different keywords."
-            reward = -0.02  # Small penalty for unsuccessful search
+            reward = 0.01
 
         return {
             "observation": self._create_observation(
                 content=content,
                 status="success"
             ),
-            "reward": reward,
+            "reward": self._bounded_reward(reward),
             "done": False,
             "info": {"query": query, "results_count": len(results)}
         }
@@ -290,7 +320,7 @@ class WebResearchEnvironment:
                     content="No content scraped yet. Use scrape() or search() first.",
                     status="error"
                 ),
-                "reward": -0.05,
+                "reward": self._bounded_reward(0.01),
                 "done": False,
                 "info": {"error": "No content available"}
             }
@@ -311,14 +341,14 @@ class WebResearchEnvironment:
             content = f"No relevant information found for: {question}\n\nScraped content:\n" + "\n".join([
                 f"- {url}" for url in self.scraped_urls
             ])
-            reward = -0.02
+            reward = 0.01
 
         return {
             "observation": self._create_observation(
                 content=content,
                 status="success"
             ),
-            "reward": reward,
+            "reward": self._bounded_reward(reward),
             "done": False,
             "info": {"question": question, "sources": len(relevant_content)}
         }
@@ -339,7 +369,7 @@ class WebResearchEnvironment:
         elif self.step_count < 15:
             efficiency_bonus = 0.05
 
-        final_reward = min(score + efficiency_bonus, 1.0)
+        final_reward = self._bounded_reward(score + efficiency_bonus)
 
         success = score >= 0.7
 
